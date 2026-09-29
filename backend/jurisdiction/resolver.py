@@ -116,7 +116,7 @@ COUNTRY_KNOWLEDGE_BASE: Dict[str, Dict[str, Any]] = {
         "measurement": "metric",
         "postal_label": "PIN Code",
         "regions": ["Maharashtra", "Karnataka", "Delhi", "Tamil Nadu", "Telangana"],
-        "cities": {"mumbai": "Maharashtra", "bengaluru": "Karnataka", "delhi": "Delhi", "hyderabad": "Telangana"}
+        "cities": {"mumbai": "Maharashtra", "bengaluru": "Karnataka", "bangalore": "Karnataka", "delhi": "Delhi", "new delhi": "Delhi", "hyderabad": "Telangana", "chennai": "Tamil Nadu", "kolkata": "West Bengal", "pune": "Maharashtra", "ahmedabad": "Gujarat", "jaipur": "Rajasthan", "surat": "Gujarat", "lucknow": "Uttar Pradesh", "kochi": "Kerala", "chandigarh": "Punjab", "gurgaon": "Haryana", "gurugram": "Haryana", "noida": "Uttar Pradesh", "indore": "Madhya Pradesh", "mysore": "Karnataka", "mysuru": "Karnataka"}
     },
     "germany": {
         "name": "Germany",
@@ -360,14 +360,17 @@ class JurisdictionResolver:
         text_lower = raw_text.lower()
 
         # Check for relocation patterns like "from X to Y"
-        move_match = re.search(r"from\s+([a-z0-9\s,\.-]+?)\s+to\s+([a-z0-9\s,\.-]+?)(?:\s+in|\s+with|\s+for|\.|$)", text_lower)
+        move_match = re.search(r"(?:from|leaving|out of)\s+([a-z0-9\s,\.-]+?)\s+(?:to|for|into)\s+([a-z0-9\s,\.-]+?)(?:\s+in|\s+with|\s+for|\.|$)", text_lower)
         
         if move_match:
             origin_str = move_match.group(1).strip()
             dest_str = move_match.group(2).strip()
             
-            origin_juris = JurisdictionResolver.parse_location_string(origin_str)
             dest_juris = JurisdictionResolver.parse_location_string(dest_str)
+            origin_juris = JurisdictionResolver.parse_location_string(
+                origin_str, 
+                default_country_key=dest_juris.country.lower() if dest_juris else None
+            )
             
             is_cross_border = (origin_juris.country.lower() != dest_juris.country.lower())
             return origin_juris, dest_juris, is_cross_border
@@ -377,8 +380,8 @@ class JurisdictionResolver:
         return origin_juris, None, False
 
     @staticmethod
-    def parse_location_string(location_str: str) -> Jurisdiction:
-        location_lower = location_str.lower()
+    def parse_location_string(location_str: str, default_country_key: Optional[str] = None) -> Jurisdiction:
+        location_lower = location_str.lower().strip()
         found_country_key = None
         found_city = None
         found_region = None
@@ -403,16 +406,32 @@ class JurisdictionResolver:
                         found_country_key = c_key
                     break
 
+        if not found_country_key and default_country_key:
+            if default_country_key in COUNTRY_KNOWLEDGE_BASE:
+                found_country_key = COUNTRY_KNOWLEDGE_BASE[default_country_key].get("alias_for", default_country_key)
+
         if not found_country_key:
-            # Fallback default if unspecified
-            found_country_key = "united states"
+            # If location cannot be matched to a country in DB, use user input location string directly
+            extracted_title = location_str.strip().title() if location_str else "Local Jurisdiction"
+            return Jurisdiction(
+                country=extracted_title,
+                region=extracted_title,
+                city=extracted_title,
+                postal_code=None,
+                timezone="UTC",
+                currency="USD",
+                language="en",
+                locale="en-US",
+                measurement_system="metric"
+            )
 
         meta = COUNTRY_KNOWLEDGE_BASE.get(found_country_key, COUNTRY_KNOWLEDGE_BASE["united states"])
+        user_city = found_city or (location_str.strip().title() if location_str else None)
         
         return Jurisdiction(
             country=meta["name"],
-            region=found_region or (meta["regions"][0] if meta["regions"] else None),
-            city=found_city or (list(meta["cities"].keys())[0].title() if meta["cities"] else None),
+            region=found_region or (meta["regions"][0] if meta["regions"] else meta["name"]),
+            city=user_city or (list(meta["cities"].keys())[0].title() if meta["cities"] else meta["name"]),
             postal_code=None,
             timezone=meta["timezone"],
             currency=meta["currency"],
