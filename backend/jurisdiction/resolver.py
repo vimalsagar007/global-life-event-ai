@@ -1,359 +1,206 @@
 import re
+import urllib.request
+import urllib.parse
+import json
+import logging
 from typing import Tuple, Dict, Any, Optional
 from backend.models.domain import Jurisdiction
 
+logger = logging.getLogger("GlobalLifeEventAI")
 
-COUNTRY_KNOWLEDGE_BASE: Dict[str, Dict[str, Any]] = {
-    "canada": {
-        "name": "Canada",
-        "currency": "CAD",
-        "language": "en",
-        "locale": "en-CA",
-        "timezone": "America/Toronto",
-        "measurement": "metric",
-        "postal_label": "Postal Code",
-        "regions": ["Ontario", "Quebec", "British Columbia", "Alberta", "Manitoba", "Nova Scotia"],
-        "cities": {"toronto": "Ontario", "vancouver": "British Columbia", "montreal": "Quebec", "calgary": "Alberta", "ottawa": "Ontario"}
-    },
-    "united kingdom": {
-        "name": "United Kingdom",
-        "currency": "GBP",
-        "language": "en",
-        "locale": "en-GB",
-        "timezone": "Europe/London",
-        "measurement": "metric",
-        "postal_label": "Postcode",
-        "regions": ["England", "Scotland", "Wales", "Northern Ireland"],
-        "cities": {"london": "England", "manchester": "England", "edinburgh": "Scotland", "birmingham": "England", "glasgow": "Scotland"}
-    },
-    "uk": {"alias_for": "united kingdom"},
-    "united states": {
-        "name": "United States",
-        "currency": "USD",
-        "language": "en",
-        "locale": "en-US",
-        "timezone": "America/New_York",
-        "measurement": "imperial",
-        "postal_label": "ZIP Code",
-        "regions": ["New York", "California", "Texas", "Florida", "Illinois", "Washington", "Massachusetts"],
-        "cities": {"new york": "New York", "nyc": "New York", "san francisco": "California", "los angeles": "California", "chicago": "Illinois", "seattle": "Washington", "austin": "Texas", "boston": "Massachusetts"}
-    },
-    "usa": {"alias_for": "united states"},
-    "us": {"alias_for": "united states"},
-    "japan": {
-        "name": "Japan",
-        "currency": "JPY",
-        "language": "ja",
-        "locale": "ja-JP",
-        "timezone": "Asia/Tokyo",
-        "measurement": "metric",
-        "postal_label": "Postal Code",
-        "regions": ["Tokyo", "Osaka", "Kyoto", "Hokkaido", "Fukuoka"],
-        "cities": {"tokyo": "Tokyo", "osaka": "Osaka", "kyoto": "Kyoto"}
-    },
-    "singapore": {
-        "name": "Singapore",
-        "currency": "SGD",
-        "language": "en",
-        "locale": "en-SG",
-        "timezone": "Asia/Singapore",
-        "measurement": "metric",
-        "postal_label": "Postal Code",
-        "regions": ["Central Region", "East Region", "West Region"],
-        "cities": {"singapore": "Central Region"}
-    },
-    "brazil": {
-        "name": "Brazil",
-        "currency": "BRL",
-        "language": "pt",
-        "locale": "pt-BR",
-        "timezone": "America/Sao_Paulo",
-        "measurement": "metric",
-        "postal_label": "CEP",
-        "regions": ["São Paulo", "Rio de Janeiro", "Bahia", "Minas Gerais"],
-        "cities": {"são paulo": "São Paulo", "sao paulo": "São Paulo", "rio de janeiro": "Rio de Janeiro"}
-    },
-    "portugal": {
-        "name": "Portugal",
-        "currency": "EUR",
-        "language": "pt",
-        "locale": "pt-PT",
-        "timezone": "Europe/Lisbon",
-        "measurement": "metric",
-        "postal_label": "Código Postal",
-        "regions": ["Lisbon", "Porto", "Faro"],
-        "cities": {"lisbon": "Lisbon", "porto": "Porto"}
-    },
-    "uae": {"alias_for": "united arab emirates"},
-    "united arab emirates": {
-        "name": "United Arab Emirates",
-        "currency": "AED",
-        "language": "ar",
-        "locale": "ar-AE",
-        "timezone": "Asia/Dubai",
-        "measurement": "metric",
-        "postal_label": "Makani / PO Box",
-        "regions": ["Dubai", "Abu Dhabi", "Sharjah"],
-        "cities": {"dubai": "Dubai", "abu dhabi": "Abu Dhabi"}
-    },
-    "australia": {
-        "name": "Australia",
-        "currency": "AUD",
-        "language": "en",
-        "locale": "en-AU",
-        "timezone": "Australia/Sydney",
-        "measurement": "metric",
-        "postal_label": "Postcode",
-        "regions": ["New South Wales", "Victoria", "Queensland", "Western Australia"],
-        "cities": {"sydney": "New South Wales", "melbourne": "Victoria", "brisbane": "Queensland"}
-    },
-    "india": {
-        "name": "India",
-        "currency": "INR",
-        "language": "hi",
-        "locale": "hi-IN",
-        "timezone": "Asia/Kolkata",
-        "measurement": "metric",
-        "postal_label": "PIN Code",
-        "regions": ["Maharashtra", "Karnataka", "Delhi", "Tamil Nadu", "Telangana"],
-        "cities": {"mumbai": "Maharashtra", "bengaluru": "Karnataka", "bangalore": "Karnataka", "delhi": "Delhi", "new delhi": "Delhi", "hyderabad": "Telangana", "chennai": "Tamil Nadu", "kolkata": "West Bengal", "pune": "Maharashtra", "ahmedabad": "Gujarat", "jaipur": "Rajasthan", "surat": "Gujarat", "lucknow": "Uttar Pradesh", "kochi": "Kerala", "chandigarh": "Punjab", "gurgaon": "Haryana", "gurugram": "Haryana", "noida": "Uttar Pradesh", "indore": "Madhya Pradesh", "mysore": "Karnataka", "mysuru": "Karnataka"}
-    },
-    "germany": {
-        "name": "Germany",
-        "currency": "EUR",
-        "language": "de",
-        "locale": "de-DE",
-        "timezone": "Europe/Berlin",
-        "measurement": "metric",
-        "postal_label": "Postleitzahl",
-        "regions": ["Bavaria", "Berlin", "North Rhine-Westphalia", "Hesse"],
-        "cities": {"berlin": "Berlin", "munich": "Bavaria", "frankfurt": "Hesse"}
-    },
-    "france": {
-        "name": "France",
-        "currency": "EUR",
-        "language": "fr",
-        "locale": "fr-FR",
-        "timezone": "Europe/Paris",
-        "measurement": "metric",
-        "postal_label": "Code Postal",
-        "regions": ["Île-de-France", "Provence-Alpes-Côte d'Azur"],
-        "cities": {"paris": "Île-de-France", "lyon": "Auvergne-Rhône-Alpes", "marseille": "Provence-Alpes-Côte d'Azur"}
-    },
-    "spain": {
-        "name": "Spain",
-        "currency": "EUR",
-        "language": "es",
-        "locale": "es-ES",
-        "timezone": "Europe/Madrid",
-        "measurement": "metric",
-        "postal_label": "Código Postal",
-        "regions": ["Madrid", "Catalonia", "Andalusia"],
-        "cities": {"madrid": "Madrid", "barcelona": "Catalonia"}
-    },
-    "italy": {
-        "name": "Italy",
-        "currency": "EUR",
-        "language": "it",
-        "locale": "it-IT",
-        "timezone": "Europe/Rome",
-        "measurement": "metric",
-        "postal_label": "CAP",
-        "regions": ["Lazio", "Lombardy"],
-        "cities": {"rome": "Lazio", "milan": "Lombardy"}
-    },
-    "switzerland": {
-        "name": "Switzerland",
-        "currency": "CHF",
-        "language": "de",
-        "locale": "de-CH",
-        "timezone": "Europe/Zurich",
-        "measurement": "metric",
-        "postal_label": "PLZ",
-        "regions": ["Zurich", "Geneva"],
-        "cities": {"zurich": "Zurich", "geneva": "Geneva"}
-    },
-    "netherlands": {
-        "name": "Netherlands",
-        "currency": "EUR",
-        "language": "nl",
-        "locale": "nl-NL",
-        "timezone": "Europe/Amsterdam",
-        "measurement": "metric",
-        "postal_label": "Postcode",
-        "regions": ["North Holland"],
-        "cities": {"amsterdam": "North Holland"}
-    },
-    "new zealand": {
-        "name": "New Zealand",
-        "currency": "NZD",
-        "language": "en",
-        "locale": "en-NZ",
-        "timezone": "Pacific/Auckland",
-        "measurement": "metric",
-        "postal_label": "Postcode",
-        "regions": ["Auckland Region"],
-        "cities": {"auckland": "Auckland Region"}
-    },
-    "south africa": {
-        "name": "South Africa",
-        "currency": "ZAR",
-        "language": "en",
-        "locale": "en-ZA",
-        "timezone": "Africa/Johannesburg",
-        "measurement": "metric",
-        "postal_label": "Postal Code",
-        "regions": ["Western Cape"],
-        "cities": {"cape town": "Western Cape"}
-    },
-    "nigeria": {
-        "name": "Nigeria",
-        "currency": "NGN",
-        "language": "en",
-        "locale": "en-NG",
-        "timezone": "Africa/Lagos",
-        "measurement": "metric",
-        "postal_label": "Postcode",
-        "regions": ["Lagos State"],
-        "cities": {"lagos": "Lagos State"}
-    },
-    "kenya": {
-        "name": "Kenya",
-        "currency": "KES",
-        "language": "en",
-        "locale": "en-KE",
-        "timezone": "Africa/Nairobi",
-        "measurement": "metric",
-        "postal_label": "Postal Code",
-        "regions": ["Nairobi County"],
-        "cities": {"nairobi": "Nairobi County"}
-    },
-    "argentina": {
-        "name": "Argentina",
-        "currency": "ARS",
-        "language": "es",
-        "locale": "es-AR",
-        "timezone": "America/Buenos_Aires",
-        "measurement": "metric",
-        "postal_label": "CPA",
-        "regions": ["Buenos Aires"],
-        "cities": {"buenos aires": "Buenos Aires"}
-    },
-    "mexico": {
-        "name": "Mexico",
-        "currency": "MXN",
-        "language": "es",
-        "locale": "es-MX",
-        "timezone": "America/Mexico_City",
-        "measurement": "metric",
-        "postal_label": "Código Postal",
-        "regions": ["CDMX"],
-        "cities": {"mexico city": "CDMX"}
-    },
-    "saudi arabia": {
-        "name": "Saudi Arabia",
-        "currency": "SAR",
-        "language": "ar",
-        "locale": "ar-SA",
-        "timezone": "Asia/Riyadh",
-        "measurement": "metric",
-        "postal_label": "Postal Code",
-        "regions": ["Riyadh Region"],
-        "cities": {"riyadh": "Riyadh Region"}
-    },
-    "thailand": {
-        "name": "Thailand",
-        "currency": "THB",
-        "language": "th",
-        "locale": "th-TH",
-        "timezone": "Asia/Bangkok",
-        "measurement": "metric",
-        "postal_label": "Postal Code",
-        "regions": ["Bangkok Metropolis"],
-        "cities": {"bangkok": "Bangkok Metropolis"}
-    },
-    "malaysia": {
-        "name": "Malaysia",
-        "currency": "MYR",
-        "language": "ms",
-        "locale": "ms-MY",
-        "timezone": "Asia/Kuala_Lumpur",
-        "measurement": "metric",
-        "postal_label": "Poskod",
-        "regions": ["Kuala Lumpur"],
-        "cities": {"kuala lumpur": "Kuala Lumpur"}
-    },
-    "sweden": {
-        "name": "Sweden",
-        "currency": "SEK",
-        "language": "sv",
-        "locale": "sv-SE",
-        "timezone": "Europe/Stockholm",
-        "measurement": "metric",
-        "postal_label": "Postnummer",
-        "regions": ["Stockholm County"],
-        "cities": {"stockholm": "Stockholm County"}
-    },
-    "norway": {
-        "name": "Norway",
-        "currency": "NOK",
-        "language": "no",
-        "locale": "no-NO",
-        "timezone": "Europe/Oslo",
-        "measurement": "metric",
-        "postal_label": "Postnummer",
-        "regions": ["Oslo"],
-        "cities": {"oslo": "Oslo"}
-    },
-    "denmark": {
-        "name": "Denmark",
-        "currency": "DKK",
-        "language": "da",
-        "locale": "da-DK",
-        "timezone": "Europe/Copenhagen",
-        "measurement": "metric",
-        "postal_label": "Postnummer",
-        "regions": ["Capital Region"],
-        "cities": {"copenhagen": "Capital Region"}
-    },
-    "finland": {
-        "name": "Finland",
-        "currency": "EUR",
-        "language": "fi",
-        "locale": "fi-FI",
-        "timezone": "Europe/Helsinki",
-        "measurement": "metric",
-        "postal_label": "Postinumero",
-        "regions": ["Uusimaa"],
-        "cities": {"helsinki": "Uusimaa"}
-    },
-    "china": {
-        "name": "China",
-        "currency": "CNY",
-        "language": "zh",
-        "locale": "zh-CN",
-        "timezone": "Asia/Shanghai",
-        "measurement": "metric",
-        "postal_label": "Postal Code",
-        "regions": ["Shanghai", "Hong Kong"],
-        "cities": {"shanghai": "Shanghai", "hong kong": "Hong Kong"}
-    },
-    "south korea": {
-        "name": "South Korea",
-        "currency": "KRW",
-        "language": "ko",
-        "locale": "ko-KR",
-        "timezone": "Asia/Seoul",
-        "measurement": "metric",
-        "postal_label": "Postal Code",
-        "regions": ["Seoul Capital Area"],
-        "cities": {"seoul": "Seoul Capital Area"}
-    }
+# In-memory cache for public geocoding requests to respect API rate limits
+GEOCODE_CACHE: Dict[str, Jurisdiction] = {}
+
+ISO_COUNTRY_METADATA: Dict[str, Dict[str, Any]] = {
+    "in": {"name": "India", "currency": "INR", "language": "hi", "locale": "hi-IN", "timezone": "Asia/Kolkata", "measurement": "metric"},
+    "us": {"name": "United States", "currency": "USD", "language": "en", "locale": "en-US", "timezone": "America/New_York", "measurement": "imperial"},
+    "gb": {"name": "United Kingdom", "currency": "GBP", "language": "en", "locale": "en-GB", "timezone": "Europe/London", "measurement": "metric"},
+    "ca": {"name": "Canada", "currency": "CAD", "language": "en", "locale": "en-CA", "timezone": "America/Toronto", "measurement": "metric"},
+    "ch": {"name": "Switzerland", "currency": "CHF", "language": "de", "locale": "de-CH", "timezone": "Europe/Zurich", "measurement": "metric"},
+    "de": {"name": "Germany", "currency": "EUR", "language": "de", "locale": "de-DE", "timezone": "Europe/Berlin", "measurement": "metric"},
+    "fr": {"name": "France", "currency": "EUR", "language": "fr", "locale": "fr-FR", "timezone": "Europe/Paris", "measurement": "metric"},
+    "jp": {"name": "Japan", "currency": "JPY", "language": "ja", "locale": "ja-JP", "timezone": "Asia/Tokyo", "measurement": "metric"},
+    "sg": {"name": "Singapore", "currency": "SGD", "language": "en", "locale": "en-SG", "timezone": "Asia/Singapore", "measurement": "metric"},
+    "au": {"name": "Australia", "currency": "AUD", "language": "en", "locale": "en-AU", "timezone": "Australia/Sydney", "measurement": "metric"},
+    "nz": {"name": "New Zealand", "currency": "NZD", "language": "en", "locale": "en-NZ", "timezone": "Pacific/Auckland", "measurement": "metric"},
+    "br": {"name": "Brazil", "currency": "BRL", "language": "pt", "locale": "pt-BR", "timezone": "America/Sao_Paulo", "measurement": "metric"},
+    "mx": {"name": "Mexico", "currency": "MXN", "language": "es", "locale": "es-MX", "timezone": "America/Mexico_City", "measurement": "metric"},
+    "ae": {"name": "United Arab Emirates", "currency": "AED", "language": "ar", "locale": "ar-AE", "timezone": "Asia/Dubai", "measurement": "metric"},
+    "es": {"name": "Spain", "currency": "EUR", "language": "es", "locale": "es-ES", "timezone": "Europe/Madrid", "measurement": "metric"},
+    "it": {"name": "Italy", "currency": "EUR", "language": "it", "locale": "it-IT", "timezone": "Europe/Rome", "measurement": "metric"},
+    "nl": {"name": "Netherlands", "currency": "EUR", "language": "nl", "locale": "nl-NL", "timezone": "Europe/Amsterdam", "measurement": "metric"},
+    "se": {"name": "Sweden", "currency": "SEK", "language": "sv", "locale": "sv-SE", "timezone": "Europe/Stockholm", "measurement": "metric"},
+    "no": {"name": "Norway", "currency": "NOK", "language": "no", "locale": "no-NO", "timezone": "Europe/Oslo", "measurement": "metric"},
+    "dk": {"name": "Denmark", "currency": "DKK", "language": "da", "locale": "da-DK", "timezone": "Europe/Copenhagen", "measurement": "metric"},
+    "fi": {"name": "Finland", "currency": "EUR", "language": "fi", "locale": "fi-FI", "timezone": "Europe/Helsinki", "measurement": "metric"},
+    "cn": {"name": "China", "currency": "CNY", "language": "zh", "locale": "zh-CN", "timezone": "Asia/Shanghai", "measurement": "metric"},
+    "hk": {"name": "Hong Kong", "currency": "HKD", "language": "zh", "locale": "zh-HK", "timezone": "Asia/Hong_Kong", "measurement": "metric"},
+    "kr": {"name": "South Korea", "currency": "KRW", "language": "ko", "locale": "ko-KR", "timezone": "Asia/Seoul", "measurement": "metric"},
+    "za": {"name": "South Africa", "currency": "ZAR", "language": "en", "locale": "en-ZA", "timezone": "Africa/Johannesburg", "measurement": "metric"},
+    "th": {"name": "Thailand", "currency": "THB", "language": "th", "locale": "th-TH", "timezone": "Asia/Bangkok", "measurement": "metric"},
+    "my": {"name": "Malaysia", "currency": "MYR", "language": "ms", "locale": "ms-MY", "timezone": "Asia/Kuala_Lumpur", "measurement": "metric"},
+    "ng": {"name": "Nigeria", "currency": "NGN", "language": "en", "locale": "en-NG", "timezone": "Africa/Lagos", "measurement": "metric"},
+    "ke": {"name": "Kenya", "currency": "KES", "language": "en", "locale": "en-KE", "timezone": "Africa/Nairobi", "measurement": "metric"},
+    "ar": {"name": "Argentina", "currency": "ARS", "language": "es", "locale": "es-AR", "timezone": "America/Buenos_Aires", "measurement": "metric"},
+    "sa": {"name": "Saudi Arabia", "currency": "SAR", "language": "ar", "locale": "ar-SA", "timezone": "Asia/Riyadh", "measurement": "metric"},
+    "pt": {"name": "Portugal", "currency": "EUR", "language": "pt", "locale": "pt-PT", "timezone": "Europe/Lisbon", "measurement": "metric"},
+}
+
+COUNTRY_ALIASES: Dict[str, str] = {
+    "uk": "United Kingdom",
+    "usa": "United States",
+    "us": "United States",
+    "uae": "United Arab Emirates",
+    "canada": "Canada",
+    "india": "India",
+    "japan": "Japan",
+    "singapore": "Singapore",
+    "switzerland": "Switzerland",
+    "germany": "Germany",
+    "france": "France",
+    "brazil": "Brazil",
+    "australia": "Australia",
+    "portugal": "Portugal",
+    "south korea": "South Korea",
+    "korea": "South Korea",
+    "hong kong": "Hong Kong",
+    "china": "China",
+    "thailand": "Thailand",
+    "malaysia": "Malaysia",
+    "saudi arabia": "Saudi Arabia",
+    "mexico": "Mexico",
+    "argentina": "Argentina",
+    "kenya": "Kenya",
+    "nigeria": "Nigeria",
+    "south africa": "South Africa",
+    "new zealand": "New Zealand",
+    "netherlands": "Netherlands",
+    "italy": "Italy", "spain": "Spain", "sweden": "Sweden", "norway": "Norway", "denmark": "Denmark", "finland": "Finland"
+}
+
+KNOWN_CITY_TO_COUNTRY: Dict[str, Tuple[str, str]] = {
+    "new york": ("United States", "New York"),
+    "nyc": ("United States", "New York"),
+    "san francisco": ("United States", "California"),
+    "los angeles": ("United States", "California"),
+    "chicago": ("United States", "Illinois"),
+    "seattle": ("United States", "Washington"),
+    "austin": ("United States", "Texas"),
+    "boston": ("United States", "Massachusetts"),
+    "toronto": ("Canada", "Ontario"),
+    "vancouver": ("Canada", "British Columbia"),
+    "montreal": ("Canada", "Quebec"),
+    "london": ("United Kingdom", "England"),
+    "manchester": ("United Kingdom", "England"),
+    "edinburgh": ("United Kingdom", "Scotland"),
+    "bangalore": ("India", "Karnataka"),
+    "bengaluru": ("India", "Karnataka"),
+    "hyderabad": ("India", "Telangana"),
+    "mumbai": ("India", "Maharashtra"),
+    "delhi": ("India", "Delhi"),
+    "new delhi": ("India", "Delhi"),
+    "chennai": ("India", "Tamil Nadu"),
+    "tokyo": ("Japan", "Tokyo"),
+    "kyoto": ("Japan", "Kyoto"),
+    "osaka": ("Japan", "Osaka"),
+    "singapore": ("Singapore", "Central Region"),
+    "zurich": ("Switzerland", "Zurich"),
+    "geneva": ("Switzerland", "Geneva"),
+    "berlin": ("Germany", "Berlin"),
+    "munich": ("Germany", "Bavaria"),
+    "frankfurt": ("Germany", "Hesse"),
+    "paris": ("France", "Île-de-France"),
+    "sydney": ("Australia", "New South Wales"),
+    "melbourne": ("Australia", "Victoria"),
+    "dubai": ("United Arab Emirates", "Dubai"),
+    "são paulo": ("Brazil", "São Paulo"),
+    "sao paulo": ("Brazil", "São Paulo"),
+    "lisbon": ("Portugal", "Lisbon"),
+    "seoul": ("South Korea", "Seoul Capital Area"),
+    "madrid": ("Spain", "Madrid"),
+    "rome": ("Italy", "Lazio"),
+    "amsterdam": ("Netherlands", "North Holland"),
+    "auckland": ("New Zealand", "Auckland Region"),
+    "cape town": ("South Africa", "Western Cape"),
+    "lagos": ("Nigeria", "Lagos State"),
+    "nairobi": ("Kenya", "Nairobi County"),
+    "buenos aires": ("Argentina", "Buenos Aires"),
+    "mexico city": ("Mexico", "CDMX"),
+    "riyadh": ("Saudi Arabia", "Riyadh Region"),
+    "bangkok": ("Thailand", "Bangkok Metropolis"),
+    "kuala lumpur": ("Malaysia", "Kuala Lumpur"),
+    "hong kong": ("Hong Kong", "Hong Kong"),
+    "shanghai": ("China", "Shanghai"),
+    "stockholm": ("Sweden", "Stockholm County"),
+    "oslo": ("Norway", "Oslo"),
+    "copenhagen": ("Denmark", "Capital Region"),
+    "helsinki": ("Finland", "Uusimaa")
 }
 
 
 class JurisdictionResolver:
-    """Parses text prompts to extract origin & destination jurisdictions and determine cross-border status."""
+    """Parses text prompts using public OpenStreetMap Geocoding API with multi-stage fallback & caching."""
+
+    @staticmethod
+    def geocode_public_api(location_query: str) -> Optional[Jurisdiction]:
+        """Calls OpenStreetMap Nominatim Public Geocoding API with caching and failover."""
+        clean_query = location_query.strip().lower()
+        if not clean_query:
+            return None
+
+        # Check Cache
+        if clean_query in GEOCODE_CACHE:
+            return GEOCODE_CACHE[clean_query]
+        
+        try:
+            url = f"https://nominatim.openstreetmap.org/search?q={urllib.parse.quote(location_query.strip())}&format=json&addressdetails=1&accept-language=en"
+            req = urllib.request.Request(
+                url,
+                headers={"User-Agent": "GlobalLifeEventAI-Orchestrator/2.0 (contact@globallifeevent.ai)"}
+            )
+            with urllib.request.urlopen(req, timeout=3.0) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+                if payload and len(payload) > 0:
+                    item = payload[0]
+                    address = item.get("address", {})
+                    country_name = address.get("country") or location_query.strip().title()
+                    state_name = address.get("state") or address.get("county") or address.get("region") or country_name
+                    city_name = (
+                        address.get("city") or 
+                        address.get("town") or 
+                        address.get("village") or 
+                        address.get("municipality") or 
+                        address.get("suburb") or 
+                        address.get("county") or 
+                        location_query.strip().title()
+                    )
+                    country_code = address.get("country_code", "").lower()
+
+                    meta = ISO_COUNTRY_METADATA.get(country_code, {
+                        "name": country_name,
+                        "currency": "USD",
+                        "language": "en",
+                        "locale": f"en-{country_code.upper()}" if country_code else "en-US",
+                        "timezone": "UTC",
+                        "measurement": "metric"
+                    })
+
+                    res = Jurisdiction(
+                        country=country_name,
+                        region=state_name,
+                        city=city_name,
+                        postal_code=address.get("postcode"),
+                        timezone=meta.get("timezone", "UTC"),
+                        currency=meta.get("currency", "USD"),
+                        language=meta.get("language", "en"),
+                        locale=meta.get("locale", "en-US"),
+                        measurement_system=meta.get("measurement", "metric")
+                    )
+                    GEOCODE_CACHE[clean_query] = res
+                    return res
+        except Exception as err:
+            logger.warning(f"[GEOCODE_API] Public Geocoding API notice for '{location_query}': {err}")
+        return None
 
     @staticmethod
     def resolve_from_text(raw_text: str) -> Tuple[Jurisdiction, Optional[Jurisdiction], bool]:
@@ -369,7 +216,7 @@ class JurisdictionResolver:
             dest_juris = JurisdictionResolver.parse_location_string(dest_str)
             origin_juris = JurisdictionResolver.parse_location_string(
                 origin_str, 
-                default_country_key=dest_juris.country.lower() if dest_juris else None
+                default_country=dest_juris.country if dest_juris else None
             )
             
             is_cross_border = (origin_juris.country.lower() != dest_juris.country.lower())
@@ -380,62 +227,58 @@ class JurisdictionResolver:
         return origin_juris, None, False
 
     @staticmethod
-    def parse_location_string(location_str: str, default_country_key: Optional[str] = None) -> Jurisdiction:
-        location_lower = location_str.lower().strip()
-        found_country_key = None
-        found_city = None
-        found_region = None
-
-        # Search for matched country or alias
-        for key, meta in COUNTRY_KNOWLEDGE_BASE.items():
-            if key in location_lower:
-                target_key = meta.get("alias_for", key)
-                found_country_key = target_key
-                break
-
-        # Search for matched city
-        for c_key, meta in COUNTRY_KNOWLEDGE_BASE.items():
-            if "alias_for" in meta:
-                continue
-            cities = meta.get("cities", {})
-            for city_name, region_name in cities.items():
-                if city_name in location_lower:
-                    found_city = city_name.title()
-                    found_region = region_name
-                    if not found_country_key:
-                        found_country_key = c_key
-                    break
-
-        if not found_country_key and default_country_key:
-            if default_country_key in COUNTRY_KNOWLEDGE_BASE:
-                found_country_key = COUNTRY_KNOWLEDGE_BASE[default_country_key].get("alias_for", default_country_key)
-
-        if not found_country_key:
-            # If location cannot be matched to a country in DB, use user input location string directly
-            extracted_title = location_str.strip().title() if location_str else "Local Jurisdiction"
+    def parse_location_string(location_str: str, default_country: Optional[str] = None) -> Jurisdiction:
+        if not location_str or not location_str.strip():
+            title = default_country or "Local Jurisdiction"
             return Jurisdiction(
-                country=extracted_title,
-                region=extracted_title,
-                city=extracted_title,
-                postal_code=None,
-                timezone="UTC",
-                currency="USD",
-                language="en",
-                locale="en-US",
-                measurement_system="metric"
+                country=title, region=title, city=title,
+                postal_code=None, timezone="UTC", currency="USD",
+                language="en", locale="en-US", measurement_system="metric"
             )
 
-        meta = COUNTRY_KNOWLEDGE_BASE.get(found_country_key, COUNTRY_KNOWLEDGE_BASE["united states"])
-        user_city = found_city or (location_str.strip().title() if location_str else None)
+        # 1. Primary Resolution: Public OpenStreetMap Geocoding API
+        api_result = JurisdictionResolver.geocode_public_api(location_str)
+        if api_result:
+            return api_result
+
+        # 2. Dynamic Fallback: Token parsing without hardcoding static defaults
+        raw_city = location_str.split(",")[0].strip().title() if "," in location_str else location_str.strip().title()
+        extracted_title = raw_city
+        location_lower = location_str.lower()
         
-        return Jurisdiction(
-            country=meta["name"],
-            region=found_region or (meta["regions"][0] if meta["regions"] else meta["name"]),
-            city=user_city or (list(meta["cities"].keys())[0].title() if meta["cities"] else meta["name"]),
+        country_title = default_country or extracted_title
+        region_title = extracted_title
+
+        # Check known city dictionary in fallback
+        for c_token, (c_country, c_region) in KNOWN_CITY_TO_COUNTRY.items():
+            if c_token in location_lower:
+                country_title = c_country
+                region_title = c_region
+                break
+
+        # Check country alias in fallback
+        for token, c_name in COUNTRY_ALIASES.items():
+            if token in location_lower:
+                country_title = c_name
+                break
+
+        # Lookup ISO metadata if matched country title
+        iso_meta = None
+        for cc, meta in ISO_COUNTRY_METADATA.items():
+            if meta["name"].lower() == country_title.lower():
+                iso_meta = meta
+                break
+
+        res = Jurisdiction(
+            country=country_title,
+            region=region_title,
+            city=extracted_title,
             postal_code=None,
-            timezone=meta["timezone"],
-            currency=meta["currency"],
-            language=meta["language"],
-            locale=meta["locale"],
-            measurement_system=meta["measurement"]
+            timezone=iso_meta["timezone"] if iso_meta else "UTC",
+            currency=iso_meta["currency"] if iso_meta else "USD",
+            language=iso_meta["language"] if iso_meta else "en",
+            locale=iso_meta["locale"] if iso_meta else "en-US",
+            measurement_system=iso_meta["measurement"] if iso_meta else "metric"
         )
+        GEOCODE_CACHE[location_str.strip().lower()] = res
+        return res

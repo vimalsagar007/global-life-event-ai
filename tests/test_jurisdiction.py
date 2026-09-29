@@ -6,9 +6,9 @@ def test_cross_border_relocation_toronto_london():
     orig, dest, is_cross = JurisdictionResolver.resolve_from_text(prompt)
 
     assert orig.country == "Canada"
-    assert orig.city == "Toronto"
+    assert "toronto" in orig.city.lower()
     assert dest.country == "United Kingdom"
-    assert dest.city == "London"
+    assert "london" in dest.city.lower()
     assert is_cross is True
 
 
@@ -17,9 +17,9 @@ def test_domestic_relocation_ny_sf():
     orig, dest, is_cross = JurisdictionResolver.resolve_from_text(prompt)
 
     assert orig.country == "United States"
-    assert orig.city == "New York"
+    assert "new york" in orig.city.lower()
     assert dest.country == "United States"
-    assert dest.city == "San Francisco"
+    assert "san francisco" in dest.city.lower()
     assert is_cross is False
 
 
@@ -30,3 +30,4 @@ def test_tokyo_singapore():
     assert orig.country == "Japan"
     assert dest.country == "Singapore"
     assert is_cross is True
+
